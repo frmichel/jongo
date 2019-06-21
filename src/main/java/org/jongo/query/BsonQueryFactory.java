@@ -76,6 +76,15 @@ public class BsonQueryFactory implements QueryFactory {
             parameters = new Object[]{null};
         }
 
+        // Fix 2019-06-21 - Workaround for issue https://github.com/bguerout/jongo/issues/366
+        // The MongoDB driver can deal with strings in double or single quotes. But it does not
+        // support strings in single quotes with escaped quotes inside e.g. 'O\'Brian'.
+        // So the nasty fix is to replace all single quotes with double quotes except those that are escaped.
+        // What can be the side effects ? Unclear, extensive tests should be needed here.
+        String modQuery = query.replace("\\'", "ESCAPED_SINGLE_QUOTE");
+        modQuery = modQuery.replace("'", "\"");
+        modQuery = modQuery.replace("ESCAPED_SINGLE_QUOTE", "'");
+        
         // We have two different cases:
         //
         // - tokens as property names "{scores.#: 1}": they must be expanded before going
@@ -89,17 +98,17 @@ public class BsonQueryFactory implements QueryFactory {
         int paramPos = 0;       // current position in the parameter list
         int start = 0;          // start of the current string segment
         int pos;                // position of the last token found
-        while ((pos = query.indexOf(token, start)) != -1) {
+        while ((pos = modQuery.indexOf(token, start)) != -1) {
             if (paramPos >= parameters.length) {
-                throw new IllegalArgumentException("Not enough parameters passed to query: " + query);
+                throw new IllegalArgumentException("Not enough parameters passed to query: " + modQuery);
             }
 
             // Insert chars before the token
-            sb.append(query, start, pos);
+            sb.append(modQuery, start, pos);
 
             // Check if the character preceding the token is one that separates values.
             // Otherwise, it's a property name substitution
-            if (isValueToken(query, pos)) {
+            if (isValueToken(modQuery, pos)) {
                 // Will be resolved by the JSON parser below
                 sb.append("{\"").append(MARSHALL_OPERATOR).append("\":").append(paramIncrement).append("}");
                 paramIncrement = 0;
@@ -114,10 +123,10 @@ public class BsonQueryFactory implements QueryFactory {
         }
 
         // Add remaining chars
-        sb.append(query, start, query.length());
+        sb.append(modQuery, start, modQuery.length());
 
         if (paramPos < parameters.length) {
-            throw new IllegalArgumentException("Too many parameters passed to query: " + query);
+            throw new IllegalArgumentException("Too many parameters passed to query: " + modQuery);
         }
 
 
